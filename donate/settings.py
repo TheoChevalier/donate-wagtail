@@ -54,6 +54,9 @@ env = environ.Env(
     RECAPTCHA_SITE_KEY=(str, ''),
     RECAPTCHA_SECRET_KEY=(str, ''),
     RECAPTCHA_ENABLED=(bool, False),
+    # Stripe
+    STRIPE_API_KEY=(str, ''),
+    STRIPE_WEBHOOK_SECRET=(str, ''),
 )
 
 # Read in the environment
