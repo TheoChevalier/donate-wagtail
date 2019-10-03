@@ -39,7 +39,7 @@ def webhook(request):
             expand=['invoice', 'balance_transaction']
         )
     except stripe.error.StripeError as e:
-        print('Error fetching Stripe Charge %s' % e.get('message'))
+        print(f'Error fetching Stripe Charge: {e._message}')
         return HttpResponse(status=400)
 
     if not charge.invoice or not charge.invoice.subscription:
@@ -58,7 +58,7 @@ def webhook(request):
     try:
         subscription = stripe.Subscription.retrieve(subscription_id)
     except stripe.error.StripeError as e:
-        print('Error fetching Stripe Subscription %s' % e.get('message'))
+        print(f'Error fetching Stripe Subscription: {e._message}')
         return HttpResponse(status=400)
 
     metadata = subscription.metadata
@@ -78,7 +78,7 @@ def webhook(request):
     try:
         stripe.Charge.update(charge_id, update_data)
     except stripe.error.StripeError as e:
-        print('Error updating Stripe Charge description and metadata %s' % e.get('message'))
+        print(f'Error updating Stripe Charge description and metadata: {e._message}')
         return HttpResponse(status=400)
 
     queue.enqueue(send_stripe_transaction_to_basket, {

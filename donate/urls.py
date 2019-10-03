@@ -12,13 +12,15 @@ from wagtail.core import urls as wagtail_urls
 from wagtail.documents import urls as wagtaildocs_urls
 
 from donate.payments import urls as payments_urls
+from stripe_webhook import urls as stripe_urls
 
 # Patterns not subject to i18n
 urlpatterns = [
     path('django-admin/', admin.site.urls),
     path('admin/', include(wagtailadmin_urls)),
     path('documents/', include(wagtaildocs_urls)),
-    path('django-rq/', include('django_rq.urls'))
+    path('django-rq/', include('django_rq.urls')),
+    path('stripe/', include(stripe_urls))
 ]
 
 urlpatterns += i18n_patterns(
