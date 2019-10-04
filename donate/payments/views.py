@@ -20,7 +20,10 @@ from .forms import (
     NewsletterSignupForm, StartCardPaymentForm, UpsellForm
 )
 from .tasks import queue, send_newsletter_subscription_to_basket, send_transaction_to_basket
-from .utils import get_currency_info, get_suggested_monthly_upgrade, freeze_transaction_details_for_session
+from .utils import (
+    get_currency_info, get_merchant_account_id_for_card, get_merchant_account_id_for_paypal, get_plan_id,
+    get_suggested_monthly_upgrade, freeze_transaction_details_for_session
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +36,6 @@ class BraintreePaymentMixin:
             'project': self.request.session.get('project', 'mozillafoundation'),
             'campaign_id': self.request.session.get('campaign_id', ''),
         }
-
-    def get_merchant_account_id(self, currency):
-        return settings.BRAINTREE_MERCHANT_ACCOUNTS[currency]
-
-    def get_plan_id(self, currency):
-        return settings.BRAINTREE_PLANS[currency]
 
     def get_transaction_details_for_session(self, result, form, **kwargs):
         raise NotImplementedError()
@@ -210,7 +207,7 @@ class CardPaymentView(BraintreePaymentMixin, FormView):
 
         result = gateway.transaction.sale({
             'amount': form.cleaned_data['amount'],
-            'merchant_account_id': self.get_merchant_account_id(self.currency),
+            'merchant_account_id': get_merchant_account_id_for_card(self.currency),
             'payment_method_token': payment_method.token,
             'options': {
                 'submit_for_settlement': True
@@ -245,8 +242,8 @@ class CardPaymentView(BraintreePaymentMixin, FormView):
 
         # Create a subcription against the payment method
         result = gateway.subscription.create({
-            'plan_id': self.get_plan_id(self.currency),
-            'merchant_account_id': self.get_merchant_account_id(self.currency),
+            'plan_id': get_plan_id(self.currency),
+            'merchant_account_id': get_merchant_account_id_for_card(self.currency),
             'payment_method_token': payment_method.token,
             'price': form.cleaned_data['amount'],
         })
@@ -300,7 +297,9 @@ class PaypalPaymentView(BraintreePaymentMixin, FormView):
         if self.payment_frequency == constants.FREQUENCY_SINGLE:
             result = gateway.transaction.sale({
                 'amount': form.cleaned_data['amount'],
-                'merchant_account_id': self.get_merchant_account_id(self.currency),
+                'merchant_account_id': get_merchant_account_id_for_paypal(
+                    self.currency, form.cleaned_data['amount']
+                ),
                 'custom_fields': self.get_custom_fields(form),
                 'payment_method_nonce': form.cleaned_data['braintree_nonce'],
                 'options': {
@@ -326,8 +325,10 @@ class PaypalPaymentView(BraintreePaymentMixin, FormView):
 
             # Create a subcription against the payment method
             result = gateway.subscription.create({
-                'plan_id': self.get_plan_id(self.currency),
-                'merchant_account_id': self.get_merchant_account_id(self.currency),
+                'plan_id': get_plan_id(self.currency),
+                'merchant_account_id': get_merchant_account_id_for_paypal(
+                    self.currency, form.cleaned_data['amount']
+                ),
                 'payment_method_token': payment_method.token,
                 'price': form.cleaned_data['amount'],
             })
@@ -448,8 +449,8 @@ class CardUpsellView(TransactionRequiredMixin, BraintreePaymentMixin, FormView):
         # Create a subcription against the payment method
         start_date = now().date() + relativedelta(months=1)     # Start one month from today
         result = gateway.subscription.create({
-            'plan_id': self.get_plan_id(currency),
-            'merchant_account_id': self.get_merchant_account_id(currency),
+            'plan_id': get_plan_id(currency),
+            'merchant_account_id': get_merchant_account_id_for_card(currency),
             'payment_method_token': payment_method_token,
             'first_billing_date': start_date,
             'price': form.cleaned_data['amount'],
@@ -536,8 +537,10 @@ class PaypalUpsellView(TransactionRequiredMixin, BraintreePaymentMixin, FormView
         # Create a subcription against the payment method
         start_date = now().date() + relativedelta(months=1)     # Start one month from today
         result = gateway.subscription.create({
-            'plan_id': self.get_plan_id(self.currency),
-            'merchant_account_id': self.get_merchant_account_id(self.currency),
+            'plan_id': get_plan_id(self.currency),
+            'merchant_account_id': get_merchant_account_id_for_paypal(
+                self.currency, form.cleaned_data['amount']
+            ),
             'payment_method_token': payment_method.token,
             'first_billing_date': start_date,
             'price': form.cleaned_data['amount'],
