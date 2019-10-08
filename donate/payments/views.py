@@ -13,6 +13,7 @@ from braintree import ErrorCodes
 from dateutil.relativedelta import relativedelta
 from wagtail.core.models import Page
 
+from donate.core.utils import queue_ga_event
 from . import constants, gateway
 from .exceptions import InvalidAddress
 from .forms import (
@@ -65,6 +66,27 @@ class BraintreePaymentMixin:
         if send_data_to_basket:
             queue.enqueue(send_transaction_to_basket, details)
         return HttpResponseRedirect(self.get_success_url())
+
+    def queue_ga_transaction(self, id, currency, amount, name, category):
+        queue_ga_event(self.request, [
+            'ecommerce:addTransaction', {
+                'id': id,
+                'revenue': str(amount),
+                'currency': currency.upper(),
+                'affiliation': self.request.session.get('project', ''),
+            }
+        ])
+        queue_ga_event(self.request, [
+            'ecommerce:addItem', {
+                'id': id,
+                'name': name,
+                'sku': name,
+                'category': category,
+                'price': str(amount),
+                'quantity': '1',
+            }
+        ])
+        queue_ga_event(self.request, ['ecommerce:send'])
 
 
 class CardPaymentView(BraintreePaymentMixin, FormView):
@@ -169,6 +191,12 @@ class CardPaymentView(BraintreePaymentMixin, FormView):
             # Processor decline or some other exception
             form.add_error(None, default_error_message)
 
+        queue_ga_event(self.request, ['send', 'event', {
+                'eventCategory': 'User Flow',
+                'eventAction': 'Card Error',
+                'eventLabel': result.message,
+            }
+        ])
         return self.form_invalid(form)
 
     def form_valid(self, form, send_data_to_basket=True):
@@ -218,6 +246,13 @@ class CardPaymentView(BraintreePaymentMixin, FormView):
         })
 
         if result.is_success:
+            self.queue_ga_transaction(
+                id=result.transaction.id,
+                currency=self.currency,
+                amount=form.cleaned_data['amount'],
+                name='Card Donation',
+                category='one-time'
+            )
             return self.success(
                 result,
                 form,
@@ -252,6 +287,13 @@ class CardPaymentView(BraintreePaymentMixin, FormView):
         })
 
         if result.is_success:
+            self.queue_ga_transaction(
+                id=result.subscription.id,
+                currency=self.currency,
+                amount=form.cleaned_data['amount'],
+                name='Card Donation',
+                category='monthly'
+            )
             return self.success(
                 result,
                 form,
@@ -307,6 +349,14 @@ class PaypalPaymentView(BraintreePaymentMixin, FormView):
                     'submit_for_settlement': True
                 }
             })
+            if result.is_success:
+                self.queue_ga_transaction(
+                    id=result.transaction.id,
+                    currency=self.currency,
+                    amount=form.cleaned_data['amount'],
+                    name='PayPal Donation',
+                    category='one-time'
+                )
         else:
             # Create a customer and payment method for this customer
             result = gateway.customer.create({
@@ -331,6 +381,14 @@ class PaypalPaymentView(BraintreePaymentMixin, FormView):
                 'payment_method_token': payment_method.token,
                 'price': form.cleaned_data['amount'],
             })
+            if result.is_success:
+                self.queue_ga_transaction(
+                    id=result.subscription.id,
+                    currency=self.currency,
+                    amount=form.cleaned_data['amount'],
+                    name='PayPal Donation',
+                    category='monthly'
+                )
 
         if result.is_success:
             return self.success(result, form, send_data_to_basket=send_data_to_basket, **success_kwargs)
@@ -456,6 +514,19 @@ class CardUpsellView(TransactionRequiredMixin, BraintreePaymentMixin, FormView):
         })
 
         if result.is_success:
+            self.queue_ga_transaction(
+                id=result.subscription.id,
+                currency=currency,
+                amount=form.cleaned_data['amount'],
+                name='Card Donation',
+                category='monthly'
+            )
+            queue_ga_event(self.request, ['send', 'event', {
+                    'eventCategory': 'User Flow',
+                    'eventAction': 'Monthly Upgrade Click',
+                    'eventLabel': 'Yes',
+                }
+            ])
             return self.success(result, form, currency=currency, send_data_to_basket=send_data_to_basket)
         else:
             logger.error(
@@ -544,6 +615,19 @@ class PaypalUpsellView(TransactionRequiredMixin, BraintreePaymentMixin, FormView
         })
 
         if result.is_success:
+            self.queue_ga_transaction(
+                id=result.subscription.id,
+                currency=self.currency,
+                amount=form.cleaned_data['amount'],
+                name='PayPal Donation',
+                category='monthly'
+            )
+            queue_ga_event(self.request, ['send', 'event', {
+                    'eventCategory': 'User Flow',
+                    'eventAction': 'Monthly Upgrade',
+                    'eventLabel': 'Yes',
+                }
+            ])
             return self.success(result, form, send_data_to_basket=send_data_to_basket)
         else:
             logger.error(
@@ -606,6 +690,12 @@ class NewsletterSignupView(TransactionRequiredMixin, FormView):
             # To address as part of https://github.com/mozilla/donate-wagtail/issues/167
             data['lang'] = self.request.LANGUAGE_CODE
             queue.enqueue(send_newsletter_subscription_to_basket, data)
+            queue_ga_event(self.request, ['send', 'event', {
+                    'eventCategory': 'Signup',
+                    'eventAction': 'Submitted the Form',
+                    'eventLabel': 'Email',
+                }
+            ])
         return super().form_valid(form)
 
 
