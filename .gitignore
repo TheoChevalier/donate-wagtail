@@ -52,7 +52,12 @@ coverage.xml
 .hypothesis/
 
 # Translations
+*.po
+*.pot
 *.mo
+*.ftl
+translations_github_commit_*
+translations.tar
 
 # Django stuff:
 *.log
@@ -92,10 +97,16 @@ ENV/
 
 # Compiled Frontend
 donate/frontend/*
-/.vscode
 
 # PyCharm
 .idea/
 
 # Cypress visual regression testing
 cypress/videos
+
+# VSCode project config
+.vscode/*
+!.vscode/launch.json
+
+# Python virtualenv
+pythondockervenv/

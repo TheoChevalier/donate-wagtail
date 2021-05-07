@@ -6,11 +6,15 @@ services:
     build:
       context: .
       dockerfile: ./dockerfiles/Dockerfile.python
-    command: pipenv run python manage.py runserver 0.0.0.0:8000
+    env_file:
+      - ".env"
+    command: ./dockerpythonvenv/bin/python manage.py runserver 0.0.0.0:8000
     ports:
       - "8000:8000"
+      - "8001:8001"  # ptvsd port for debugging
     volumes:
       - .:/app:delegated
+      - dockerpythonvenv:/app/dockerpythonvenv/:delegated
     depends_on:
       - postgres
       - redis
@@ -18,11 +22,31 @@ services:
     links:
       - redis
 
+  # RQ Worker to process donations
+  backend-worker:
+    build:
+      context: .
+      dockerfile: ./dockerfiles/Dockerfile.python
+    command: ./dockerpythonvenv/bin/python manage.py rqworker default
+    volumes:
+      - .:/app:delegated
+      - dockerpythonvenv:/app/dockerpythonvenv/:delegated
+    depends_on:
+      - postgres
+      - redis
+    links:
+      - redis
+
   # Database
   postgres:
+    environment:
+      - POSTGRES_DB=donate
+      - POSTGRES_USER=donate
+      # We're only using this setting for local dev!
+      - POSTGRES_HOST_AUTH_METHOD=trust
     image: postgres:11
     ports:
-      - "5432"
+      - "5678:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data/:delegated
 
@@ -30,7 +54,7 @@ services:
     image: redis
     container_name: 'redis'
     ports:
-      - "6379"
+      - "6380:6379"
 
   # Rebuild static files automatically
   watch-static-files:
@@ -52,3 +76,4 @@ services:
 volumes:
   postgres_data:
   node_dependencies:
+  dockerpythonvenv:

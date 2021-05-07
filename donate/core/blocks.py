@@ -5,7 +5,7 @@ from wagtail.images.blocks import ImageChooserBlock
 class HeadingBlock(blocks.CharBlock):
 
     class Meta:
-        classname = 'full title'
+        form_classname = 'full title'
         icon = 'title'
         template = 'blocks/heading_block.html'
 
@@ -26,7 +26,9 @@ class AccordionItem(blocks.StructBlock):
 
 class AccordionBlock(blocks.StructBlock):
     title = blocks.CharBlock()
-    items = blocks.ListBlock(AccordionItem)
+    items = blocks.StreamBlock([
+        ('item', AccordionItem()),
+    ])
 
     class Meta:
         template = 'blocks/accordion_block.html'

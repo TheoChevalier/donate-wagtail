@@ -4,81 +4,46 @@
 
 ## Table of contents
 
-- [How to setup your dev environment with Docker](#how-to-setup-your-dev-environment-with-docker),
-- [How to use Invoke tasks](#invoke-tasks),
+- [How to setup your dev environment with Docker](#setup-your-dev-environment-with-docker)
 - [Basket donations queue](#basket)
 
 ## Documentation
 
 - [Pages](docs/pages.md)
+- [Pontoon Integration](docs/pontoon_integration.md)
+- [Local dev](./docs/local_dev.md)
 
-## Notes on Docker
+## Setup your Dev Environment with Docker
 
-It should be possible to connect the python virtual env inside the container to your IDE (tested with pycharm and vscode), if you run into issues, ping patjouk on slack.
+- Install [Docker Desktop](https://www.docker.com/products/docker-desktop) (macOS and Windows). For Linux users: install [Docker CE](https://docs.docker.com/install/#supported-platforms) and [Docker Compose](https://docs.docker.com/compose/install/).
+- [Check your install](https://docs.docker.com/get-started/#test-docker-version) by running `docker run hello-world`.
+- [Install Invoke](https://www.pyinvoke.org/installing.html). We recommend you use [pipx](https://pypi.org/project/pipx/)
+- Run `inv new-env`: it's building docker images, installing dependencies, setting up a populated DB, and configuring your environment variables.
 
-## How to Setup your Dev Environment with Docker
+When it's done, run `docker-compose up`, wait for the static files to be built, and go to `0.0.0.0:8000`. When you want to stop, do `^C` to shut down your containers. If they don't stop properly, run `docker-compose down`. If you want a new dev environment, stop your containers and run `inv new_env`.
 
-- Install [Docker Desktop](https://www.docker.com/products/docker-desktop) (macOS and Windows). For Linux users: install [Docker CE](https://docs.docker.com/install/#supported-platforms) and [Docker Compose](https://docs.docker.com/compose/install/). If you don't want to create a Docker account, direct links to download can be found [in this issue](https://github.com/docker/docker.github.io/issues/6910),
-- [Check your install](https://docs.docker.com/get-started/#test-docker-version) by running `docker run hello-world`,
-- [Install Invoke](https://www.pyinvoke.org/installing.html),
-- If relevant: delete your node_modules directory (`rm -rf node_modules`). It's not necessary, but it speeds up the install.
-- Run `inv docker-setup`.
+It's possible to connect your IDE to the python virtual env available inside the backend container (tested with pycharm and vscode). If you run into issues, ping patjouk on slack.
 
-When it's done, run `docker-compose up`, wait until the static files to be built, and go to `0.0.0.0:8000`. When you want to stop, do `^C` to shut down your containers.
+To run commands with Docker, run `docker-compose run [SERVICE] [COMMAND]`. For example, running the python tests is done by `docker-compose run backend ./dockerpythonvenv/bin/python manage.py test --settings=donate.settings_test`. Since it's pretty long, most cases are covered by Invoke commands.
 
-## Invoke tasks
+More information on how to use Docker for local dev is available in the [Local dev](./docs/local_dev.md) documentation.
 
-Invoke is a python tasks runner that creates shortcuts for commands we frequently use. For example, instead of `docker-compose run --rm backend pipenv manage.py migrate`, you can use `inv docker-migrate`. It can also be used to run management commands: `inv docker-manage load-fake-data`. If you need to add multiple args to an invoke commands, use quotes. ex: `invoke docker-npm "install moment"`
+## Configuration
 
-Installation instructions: https://www.pyinvoke.org/installing.html
+[Django Configurations](https://django-configurations.readthedocs.io/en/stable/) is used for application configuration. The following Configuration Classes are provided:
 
-### With Docker
+| Value                 | Purpose                                                                                                            |
+|-----------------------|--------------------------------------------------------------------------------------------------------------------|
+| Development           |  Base configuration, suitable for local development.                                                               |
+| Staging               | Staging configuration.                                                                                             |
+| Production            | Production configuration.                                                                                          |
+| ReviewApp             | Review App configuration. Use this configuration for Heroku Review apps.                                           |
+| ThunderbirdDevelopment | Base configuration that enables all the Thunderbird template and string overrides. Suitable for local development. |
+| ThunderbirdStaging    | Staging configuration for Thunderbird donation configurations.                                                     |
+| ThunderbirdProduction | Production configuration for Thunderbird donation configurations.                                                  |
+| ThunderbirdReviewApp  | Review App configuration for Thunderbird donation configurations.                                                  |
 
-### Invoke tasks available:
 
-- `inv -l`: list available tasks,
-- `inv docker-catch-up (docker-catchup)`: Rebuild images and apply migrations
-- `inv docker-makemigrations`: Creates new migration(s)
-- `inv docker-manage`: Shorthand to manage.py. ex: `inv docker-manage "[COMMAND] [ARG]"`
-- `inv docker-migrate`: Updates database schema
-- `inv docker-npm`: Shorthand to npm. ex: `inv docker-npm "[COMMAND] [ARG]"`
-- `inv docker-nuke-db`: Delete your database and create a new one with fake data
-- `inv docker-pipenv`: Shorthand to pipenv. ex: `inv docker-pipenv "[COMMAND] [ARG]"`
-- `inv docker-setup`: Prepare your dev environment after a fresh git clone
-- `inv docker-test-python`: Run python tests
-
-Use `docker-compose up/down` to start or shutdown the dev server.
-
-**note**: use `inv docker-setup` when you've just cloned the repo. If you did a `git pull` on master and want to install the latest dependencies and apply migrations, use `inv docker-catchup` instead.
-
-### Without Docker
-
-### Invoke tasks available:
-
-- `inv -l`: list available tasks,
-- `inv catch-up (catchup)`: Install dependencies and apply migrations
-- `inv makemigrations`: Creates new migration(s)
-- `inv manage`: Shorthand to manage.py. ex: `inv manage "[COMMAND] [ARG]"`
-- `inv migrate`: Updates database schema
-- `inv setup`: Prepare your dev environment after a fresh git clone
-- `inv test`: Run python tests
-- `inv runserver`: Start a web server
-
-**note**: use `inv setup` when you've just cloned the repo. If you did a `git pull` on master and want to install the latest dependencies and apply migrations, use `inv catchup` instead.
-
-### Without Invoke
-
-### Running commands inside the Docker container
-
-When the Django server is running, you can start the Django shell with:
-
-    docker-compose exec backend pipenv run python manage.py shell
-
-### Running tests
-
-Run the back-end test suite with:
-
-    docker-compose exec backend pipenv run python manage.py test --settings=donate.settings_test
 
 
 ## Braintree configuration
@@ -92,6 +57,16 @@ The following environment variables are required to configure payment processing
 - `BRAINTREE_PRIVATE_KEY`: Private API key provided by Braintree.
 - `BRAINTREE_TOKENIZATION_KEY`: Tokenization key provided by Braintree.
 - `BRAINTREE_USE_SANDBOX`: Boolean to configure whether or not to use the Braintree sandbox.
+
+### Webhook Configuration
+
+There's a webhook endpoint for processing Braintree events. The events it supports are:
+
+* `subscription_charged_successfully`
+* `subscription_charged_unsuccessfully`
+* `dispute_lost`
+
+The endpoint accepts requests on `/braintree/webhook/` and will verify the payload signature to ensure it's a legitimate event. [Documentation for Braintree webhooks can be found here](https://developers.braintreepayments.com/guides/webhooks/overview).
 
 ## Basket
 
@@ -170,3 +145,72 @@ Example from donate.mozilla.org:
 ```
 
 _Notes_: We want to keep the `trigger_welcome` at `N` and the `format` to `html`. We don't have the country info for now, but from what I understood, it's something we want to change.
+
+## Review App
+
+### Environment variables
+
+Non-secret envs can be added to the `app.json` file. Secrets must be set on Heroku in the `Review Apps` section of the pipelines' `settings` tab.
+
+### Review App for PRs
+
+Opening a PR will automatically create a Review App in the `donate-wagtail` and `thunderbird-donate` pipelines. A slack bot posts credentials and links to Review Apps in to the `mofo-ra-donate-wagtail` and `mofo-ra-thunderbird-donate-wagtail` channels.
+
+*Note:* This only work for Mo-Fo staff: you will need to manually open a Review App on Heroku for PRs opened by external contributors.
+
+### Review App for branches
+
+You can manually create a review app for any branch pushed to this repo. It's useful if you want to test your code on Heroku without opening a PR yet.
+To create one:
+- log into Heroku.
+- Go in the `donate-wagtail` or `thunderbird-donate` pipeline.
+- Click on `+ New app` and select the branch you want to use.
+
+The review app slack bot will post a message in either the `mofo-ra-donate-wagtail` or `mofo-ra-thunderbird-donate-wagtail` with links and credentials as soon as the review app is ready.
+
+## SSO and admin logins for local development
+
+The default for admin login for local development is the standard Django login. To use Mozilla SSO via OpenID Connect, set the `USE_CONVENTIONAL_AUTH` environment variable to `False`.
+
+To make sure you can log in using your Mozilla SSO credentials, your will need to create a Django superuser with your mozilla email address, using:
+
+```shell
+docker-compose exec app python manage.py createsuperuser
+```
+
+## Adding users to the system
+
+The security model currently requires that an existing admin creates an account for a new user first, tied to that user's Mozilla email account, before that user can can log in using SSO.
+
+Further more, in order for SSO authentication to succeed, their account must be a member of the donate user group. To request that an account be added to this group, please file [an SSO request bug](https://bugzilla.mozilla.org/enter_bug.cgi?product=Infrastructure%20%26%20Operations&component=SSO:%20Requests), making sure to also `cc` a donate admin in the bug.
+
+## Translations
+
+Translation is happening on [Pontoon](https://pontoon.mozilla.org), in multiple projects where you can participate:
+
+| Project on Pontoon                          | Source repository                  |
+|---------------------------------------------|------------------------------------|
+[Mozilla & Thunderbird UI strings (Django)](https://pontoon.mozilla.org/projects/mozilla-donate-website/) | [Repository on GitHub](https://github.com/mozilla-l10n/donate-l10n)
+[Mozilla (CMS content)](https://pontoon.mozilla.org/projects/donate-mozilla-content/) | [Repository on GitHub](https://github.com/mozilla-l10n/mozilla-donate-content)
+[Thunderbird (CMS content)](https://pontoon.mozilla.org/projects/donate-thunderbird-content/) | [Repository on GitHub](https://github.com/mozilla-l10n/thunderbird-donate-content)
+
+The latest UI source strings are regularly exposed to Pontoon by a Localization PM using the process below. The CMS strings are automatically synchronized with the repositories.
+
+### Initial setup:
+- Clone the `donate-l10n` repository locally.
+- Set the `LOCAL_PATH_TO_L10N_REPO` variable in your `.env` file. Use the absolute path to your copy of the `donate-l10n` repository and include the trailing slash. E.g. `LOCAL_PATH_TO_L10N_REPO=/Users/username/Documents/GitHub/donate-l10n/`
+
+### Exposing latest source strings:
+- Make sure your local repositories of `donate-l10n` and `donate-wagtail` are matching the latest revision from master.
+- Run `inv docker-makemessages` from your `donate-wagtail` repository.
+- Files should have been updated in your `donate-l10n` repository. You can now create a pull-request.
+
+### Getting the latest translations for local dev
+
+Latest translations are uploaded to S3. To get them, run:
+- `curl -o translations.tar https://donate-wagtail-translations.s3.amazonaws.com/translations.tar`
+- `tar -C network-api -xvf translations.tar`
+
+You don't need to run `compilemessages`.
+
+The `translations_github_commit_[...]` file from the archive is only used for debug purposes on Heroku. It can be safely deleted if needed.

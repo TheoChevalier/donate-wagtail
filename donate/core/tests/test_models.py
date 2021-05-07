@@ -1,7 +1,9 @@
 from decimal import Decimal
 import json
+from io import StringIO
 
 from django.conf import settings
+from django.core.management import call_command
 from django.test import TestCase, RequestFactory
 
 from wagtail.core.models import Page
@@ -144,12 +146,47 @@ class CampaignPageTestCase(TestCase):
             'single'
         )
 
-    def test_get_initial_currency_info_uses_arg_and_sorts(self):
-        request = RequestFactory().get('/?presets=1,9,5,3')
+    def test_get_initial_currency_info_as_specified(self):
+        request = RequestFactory().get('/?presets=2,9,5,3')
         self.assertEqual(
             DonationPage().get_initial_currency_info(request, 'usd', 'single')['presets']['single'],
-            [Decimal(9), Decimal(5), Decimal(3), Decimal(1)]
+            [Decimal(2), Decimal(9), Decimal(5), Decimal(3)]
         )
+
+    def test_get_initial_currency_info_reverse_sorted(self):
+        request = RequestFactory().get('/?presets=2,9,5,3&sort=reverse')
+        self.assertEqual(
+            DonationPage().get_initial_currency_info(request, 'usd', 'single')['presets']['single'],
+            [Decimal(9), Decimal(5), Decimal(3), Decimal(2)]
+        )
+
+    def test_get_initial_currency_info_ignore_bad_values(self):
+        request = RequestFactory().get('/?presets=-1,0,1,2,3,4,5')
+        initial_currency_info = DonationPage().get_initial_currency_info(request, 'usd', 'single')['presets']['single']
+        self.assertEqual(len(initial_currency_info), 4)
+
+    def test_get_initial_currency_info_at_least_four_choices(self):
+        request = RequestFactory().get('/?presets=5')
+        default_single = DonationPage().currencies['usd']['presets']['single']
+        self.assertEqual(
+            DonationPage().get_initial_currency_info(request, 'usd', 'single')['presets']['single'],
+            default_single
+        )
+        request = RequestFactory().get('/?presets=5,5')
+        self.assertEqual(
+            DonationPage().get_initial_currency_info(request, 'usd', 'single')['presets']['single'],
+            default_single
+        )
+        request = RequestFactory().get('/?presets=5,5,5')
+        self.assertEqual(
+            DonationPage().get_initial_currency_info(request, 'usd', 'single')['presets']['single'],
+            default_single
+        )
+
+    def test_get_initial_currency_info_cap_at_four_choices(self):
+        request = RequestFactory().get('/?presets=1,9,5,3,7,3')
+        initial_currency_info = DonationPage().get_initial_currency_info(request, 'usd', 'single')['presets']['single']
+        self.assertEqual(len(initial_currency_info), 4)
 
     def test_get_initial_currency_info_skips_if_invalid_params_present(self):
         request = RequestFactory().get('/?presets=1,9,5,3,foo')
@@ -158,9 +195,47 @@ class CampaignPageTestCase(TestCase):
             DonationPage().currencies['usd']['presets']['single']
         )
 
-    def test_get_initial_currency_info_limits_to_four_shoices(self):
-        request = RequestFactory().get('/?presets=1,9,5,3,7,3')
-        self.assertEqual(
-            DonationPage().get_initial_currency_info(request, 'usd', 'single')['presets']['single'],
-            [Decimal(9), Decimal(7), Decimal(5), Decimal(3)]
-        )
+    def test_get_initial_amount_as_expected(self):
+        """
+        select the indicated value from our default list of presets (3,15,35,85)
+        """
+        request = RequestFactory().get('/?amount=60')
+        values = DonationPage().get_initial_values(request)
+        self.assertEqual(values['amount'], Decimal(60).quantize(Decimal('0.01')))
+
+    def test_select_second_lowest_on_unknown(self):
+        """
+        default to the second-lowest in (3,15,35,85)
+        """
+        request = RequestFactory().get('/?amount=10')
+        values = DonationPage().get_initial_values(request)
+        self.assertEqual(values['amount'], Decimal(10).quantize(Decimal('0.01')))
+
+    def test_select_second_lowest_on_bad_value(self):
+        """
+        default to the second-lowest in (3,15,35,85)
+        """
+        request = RequestFactory().get('/?amount=not_a_number')
+        values = DonationPage().get_initial_values(request)
+        self.assertEqual(values['amount'], Decimal(20).quantize(Decimal('0.01')))
+
+    def test_ignore_scientific_notation(self):
+        """
+        default to the second-lowest in (3,15,35,85)
+        """
+        request = RequestFactory().get('/?amount=1e100')
+        values = DonationPage().get_initial_values(request)
+        self.assertEqual(values['amount'], Decimal(20).quantize(Decimal('0.01')))
+
+
+class MissingMigrationsTests(TestCase):
+
+    def test_no_migrations_missing(self):
+        """
+        Ensure we didn't forget a migration
+        """
+        output = StringIO()
+        call_command('makemigrations', interactive=False, dry_run=True, stdout=output)
+
+        if output.getvalue() != "No changes detected\n":
+            raise AssertionError("Missing migrations detected:\n" + output.getvalue())

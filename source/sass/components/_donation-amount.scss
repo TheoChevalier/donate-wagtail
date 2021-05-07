@@ -8,6 +8,13 @@
   &--other {
     display: flex;
     flex-direction: row;
+
+    &--container {
+      @include media-query(tablet-portrait) {
+        height: 100%;
+        max-height: 90px;
+      }
+    }
   }
 
   &__container {
@@ -16,7 +23,7 @@
 
   &__label {
     position: relative;
-    z-index: 1;
+    @include z-index(base);
     display: block;
     border: 1px solid $color--border;
     padding: 20px 5px;
@@ -49,7 +56,7 @@
 
   &__radio {
     position: absolute;
-    z-index: -1;
+    @include z-index(hidden);
 
     &:checked + #{$root}__label,
     &:focus + #{$root}__label {
@@ -71,6 +78,11 @@
       &::-webkit-inner-spin-button {
         -webkit-appearance: none;
         margin: 0;
+      }
+
+      &:invalid {
+        box-shadow: none;
+        border-color: $color--warning;
       }
     }
   }

@@ -1,3 +1,5 @@
+import gaEvent from "./analytics";
+
 class CurrencySelect {
   static selector() {
     return "#id_currency-switcher-currency";
@@ -29,6 +31,7 @@ class CurrencySelect {
     this.checkDisabled(selectedData);
     // Enable other amount
     this.bindOtherAmountEvents();
+    this.bindAnalyticsEvents();
   }
 
   // Get correct currency data from json based on select choice
@@ -43,21 +46,24 @@ class CurrencySelect {
     // Create arrays for monthly and one off based on data
     var oneOffValues = selectedData.presets.single;
     var monthlyValue = selectedData.presets.monthly;
+    var minAmount = selectedData.minAmount;
     var formatter = new Intl.NumberFormat(this.locale, {
       style: "currency",
       currency: selectedData.code.toUpperCase(),
-      minimumFractionDigits: 0
+      minimumFractionDigits: 0,
     });
 
     // Create buttons
     this.outputOptions(
       oneOffValues,
+      minAmount,
       "one-time-amount",
       formatter,
       this.oneOffContainer
     );
     this.outputOptions(
       monthlyValue,
+      minAmount,
       "monthly-amount",
       formatter,
       this.monthlyContainer
@@ -70,7 +76,7 @@ class CurrencySelect {
   }
 
   // Output donation form buttons
-  outputOptions(data, type, formatter, container) {
+  outputOptions(data, minAmount, type, formatter, container) {
     var container = container;
 
     container.innerHTML = data
@@ -92,7 +98,7 @@ class CurrencySelect {
     var otherAmountString = window.gettext("Other amount");
     container.insertAdjacentHTML(
       "beforeend",
-      `<div class='donation-amount donation-amount--two-col donation-amount--other'><input type='radio' class='donation-amount__radio' name='amount' value='other' id='${type}-other' autocomplete='off' data-other-amount-radio><label for='${type}-other' class='donation-amount__label' data-currency>$</label><input type='text' class='donation-amount__input' id='${type}-other-input' placeholder='${otherAmountString}' data-other-amount></div>`
+      `<div class='donation-amount donation-amount--two-col donation-amount--other'><input type='radio' class='donation-amount__radio' name='amount' value='other' id='${type}-other' autocomplete='off' data-other-amount-radio><label for='${type}-other' class='donation-amount__label' data-currency>$</label><input type='number' class='donation-amount__input' id='${type}-other-input' placeholder='${otherAmountString}' data-other-amount min="${minAmount}" max="10000000"></div>`
     );
   }
 
@@ -101,35 +107,45 @@ class CurrencySelect {
     // Default symbol
     var symbol = selectedData.symbol;
     // ... which we attempt to replace with a localised one
-    formattedParts.forEach(part => {
+    formattedParts.forEach((part) => {
       if (part["type"] === "currency") {
         symbol = part["value"];
       }
     });
 
     // Update currency symbol
-    document.querySelectorAll("[data-currency]").forEach(currencyitem => {
+    document.querySelectorAll("[data-currency]").forEach((currencyitem) => {
       currencyitem.innerHTML = symbol;
     });
 
     // Update hidden currency inputs
-    this.formContainer.querySelectorAll(".js-form-currency").forEach(input => {
-      input.value = selectedData.code;
+    this.formContainer
+      .querySelectorAll(".js-form-currency")
+      .forEach((input) => {
+        input.value = selectedData.code;
+      });
+
+    gaEvent({
+      eventCategory: "User Flow",
+      eventAction: "Changed Currency",
+      eventLabel:
+        selectedData.code[0].toUpperCase() + selectedData.code.slice(1), // GA expects format Usd, Gbp
     });
 
     this.bindOtherAmountEvents();
+    this.bindAnalyticsEvents();
   }
 
   // Add class to container if payment provider should be disabled
   addClassToContainer(items) {
-    items.forEach(item => {
+    items.forEach((item) => {
       this.formContainer.classList.add(`${item}-disabled`);
     });
   }
 
   checkDisabled(selectedData) {
     // Remove existing classes
-    Array.from(this.formContainer.classList).forEach(className => {
+    Array.from(this.formContainer.classList).forEach((className) => {
       if (className.endsWith("-disabled")) {
         this.formContainer.classList.remove(className);
       }
@@ -141,19 +157,18 @@ class CurrencySelect {
     }
   }
 
-  // Update Radio to checked
-  selectRadio(event) {
-    this.otherAmountRadio.forEach(radio => {
-      radio.checked = true;
-    });
-  }
-
   // Updated radio value based on custom input
-  updateValue(event) {
-    const value = parseFloat(event.target.value).toFixed(2);
-    this.otherAmountRadio.forEach(radiovalue => {
-      radiovalue.value = value;
-    });
+  updateValue(input) {
+    var radio = input.parentNode.querySelector("[data-other-amount-radio]");
+    if (input.reportValidity()) {
+      radio.value = parseFloat(event.target.value).toFixed(2);
+    } else {
+      // If the value is not acceptable, set the radio's value to 0
+      // so that Paypal payments will fail if the user attempts to start one. We have no way to
+      // stop the paypal modal loading once that button is clicked.
+      // See https://github.com/paypal/paypal-checkout-components/issues/139
+      radio.value = "0";
+    }
   }
 
   bindEvents() {
@@ -171,19 +186,55 @@ class CurrencySelect {
   }
 
   bindOtherAmountEvents() {
-    // Other amount vars
-    this.otherAmountInput = document.querySelectorAll("[data-other-amount]");
-    this.otherAmountLabel = document.querySelectorAll("[data-currency]");
-    this.otherAmountRadio = document.querySelectorAll(
+    const otherAmountInputs = document.querySelectorAll("[data-other-amount]");
+    otherAmountInputs.forEach((input) => {
+      input.addEventListener("change", (_) => this.updateValue(input));
+      input.addEventListener("focusin", (_) => this.updateValue(input));
+
+      const radio = input.parentNode.querySelector("[data-other-amount-radio]");
+      input.addEventListener("click", (_) => (radio.checked = true));
+      radio.addEventListener("change", (_) =>
+        radio.checked ? this.updateValue(input) : false
+      );
+    });
+
+    // Because we are using minimum amount validation on the other amount,
+    // we need to make sure that this amount is emptied if the user
+    // selects a preset amount. Otherwise the browser will fail to validate the form.
+    const presets = document.querySelectorAll(
+      ".donation-amount__radio:not([data-other-amount-radio])"
+    );
+
+    const customAmounts = document.querySelectorAll(
       "[data-other-amount-radio]"
     );
-    for (var i = 0; i < this.otherAmountInput.length; i++) {
-      this.otherAmountInput[i].addEventListener("click", event =>
-        this.selectRadio(event)
-      );
-      this.otherAmountInput[i].addEventListener("change", event =>
-        this.updateValue(event)
-      );
+
+    presets.forEach((input) => {
+      input.addEventListener("change", (_) => {
+        if (input.checked) {
+          otherAmountInputs.forEach((other) => (other.value = ""));
+          customAmounts.forEach((other) => (other.value = ""));
+        }
+      });
+    });
+  }
+
+  bindAnalyticsEvents() {
+    for (const input of this.formContainer.querySelectorAll(
+      ".donation-amount__radio"
+    )) {
+      input.addEventListener("input", (e) => {
+        if (
+          e.target.checked &&
+          !e.target.hasAttribute("data-other-amount-radio")
+        ) {
+          gaEvent({
+            eventCategory: "User Flow",
+            eventAction: "Changed Amount",
+            eventLabel: e.target.value,
+          });
+        }
+      });
     }
   }
 }

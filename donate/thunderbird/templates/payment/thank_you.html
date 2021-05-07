@@ -1,0 +1,49 @@
+{% extends "payment/thank_you_master.html" %}
+
+{% load i18n util_tags %}
+
+{% block thank_you_description %}
+    <p>{% blocktrans with url='/help' %}We’ve emailed you a donation receipt; if it’s missing, please check your junk/spam folders, then contact us using <a href="{{ url }}">this form</a>.{% endblocktrans %}</p>
+    <p>{% trans "Lastly, can you multiply your impact by sharing about the important work Thunderbird is doing? Thank you again!" %}</p>
+{% endblock %}
+
+{% block buttons %}
+    {% trans "I donated to @mozthunderbird today to #freetheinbox. Join me to support communication privacy." as twitter_text context "Used as a tweet" %}
+    {% trans "I donated to Thunderbird today" as email_subject context "Email subject line" %}
+    {% get_current_language as LANGUAGE_CODE %}
+    {% with page_link="https://donate.mozilla.org/"|add:LANGUAGE_CODE|add:"/thunderbird/"%}
+
+    <a class="button button--outline button--icon" href="https://www.facebook.com/sharer/sharer.php?u={{ page_link }}" title="{% trans 'Share on Facebook' %}">
+        <svg class="button__icon button__icon--facebook" width="16" height="16">
+            <use xlink:href="#facebook"></use>
+        </svg>
+        <div class="button__label">{% trans "Facebook" %}</div>
+    </a>
+    {# see https://dev.twitter.com/web/tweet-button/web-intent #}
+    <a class="button button--outline button--icon" href="https://twitter.com/intent/tweet?text={{ twitter_text|urlencode }}&url={{ page_link }}&via=mozthunderbird" title="{% trans 'Share on Twitter' %}">
+        <svg class="button__icon button__icon--twitter" width="16" height="16">
+            <use xlink:href="#twitter"></use>
+        </svg>
+        <div class="button__label">{% trans "Twitter" %}</div>
+    </a>
+    <a class="button button--outline button--icon" href="mailto:?&subject={{ email_subject|urlencode }}&body={{ page_link }}">
+        <svg class="button__icon button__icon--email" width="16" height="16">
+            <use xlink:href="#email"></use>
+        </svg>
+        <div class="button__label">{% trans "Email" context "Share button" %}</div>
+    </a>
+    <a class="button button--outline button--icon" href="#" data-copy-link>
+        <svg class="button__icon button__icon--link button__initial" width="16" height="16">
+            <use xlink:href="#link"></use>
+        </svg>
+        <svg class="button__icon button__copied" width="16" height="16">
+            <use xlink:href="#tick"></use>
+        </svg>
+        <div class="button__label">
+            <span class="button__initial">{% trans "Link" context "Share button" %}</span>
+            <span class="button__copied">{% trans "Copied" %}</span>
+        </div>
+        <input class="button__hidden" type="text" value="{{ page_link }}" data-copy-value>
+    </a>
+    {% endwith %}
+{% endblock %}

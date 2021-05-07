@@ -12,8 +12,7 @@ from wagtail.core.models import Page
 from wagtail.images.edit_handlers import ImageChooserPanel
 
 from modelcluster.fields import ParentalKey
-from wagtail_localize.models import TranslatablePageMixin, TranslatablePageRoutingMixin, Locale
-from wagtail_localize.fields import TranslatableField, SynchronizedField
+from wagtail_localize.fields import SynchronizedField
 
 from donate.payments import constants
 from donate.payments.forms import BraintreePaypalPaymentForm, CurrencyForm
@@ -22,7 +21,7 @@ from donate.payments.utils import get_default_currency
 from .blocks import ContentBlock
 
 
-class DonationPage(TranslatablePageMixin, Page):
+class DonationPage(Page):
 
     PROJECT_MOZILLAFOUNDATION = 'mozillafoundation'
     PROJECT_THUNDERBIRD = 'thunderbird'
@@ -47,9 +46,19 @@ class DonationPage(TranslatablePageMixin, Page):
         FieldPanel('campaign_id'),
     ]
 
+    override_translatable_fields = [
+        SynchronizedField('slug'),
+        SynchronizedField('campaign_id'),
+    ]
+
     @cached_property
     def currencies(self):
-        return deepcopy(constants.CURRENCIES)
+        currencies = deepcopy(constants.CURRENCIES)
+        # Re-order currency `single` and `monthly` amounts
+        for currency in currencies:
+            currencies[currency]['presets']['single'].sort()
+            currencies[currency]['presets']['monthly'].sort()
+        return currencies
 
     def get_initial_currency(self, request):
         # Query argument takes first preference
@@ -72,30 +81,88 @@ class DonationPage(TranslatablePageMixin, Page):
 
     def get_initial_currency_info(self, request, initial_currency, initial_frequency):
         initial_currency_info = self.currencies[initial_currency]
+
         # Check if presets have been specified in a query arg
         custom_presets = request.GET.get('presets', '').split(',')
         try:
-            custom_presets = [Decimal(p).quantize(Decimal('0.01')) for p in custom_presets]
-        except InvalidOperation:
+            min_amount = initial_currency_info.get('minAmount', 0)
+            custom_presets = [
+                amount for amount in
+                [
+                    Decimal(value).quantize(Decimal('0.01'))
+                    if float(value) >= min_amount else None
+                    for value in custom_presets
+                ]
+                if amount
+            ]
+        except (InvalidOperation, ValueError):
             return initial_currency_info
 
         if not custom_presets:
             return initial_currency_info
 
-        custom_presets.sort(reverse=True)
+        if len(custom_presets) < 4:
+            return initial_currency_info
+
+        sorting = request.GET.get('sort', False)
+
+        if sorting == 'reverse':
+            custom_presets.sort(reverse=True)
+
         initial_currency_info['presets'][initial_frequency] = custom_presets[:4]
         return initial_currency_info
 
+    def default_initial_amount(self, initial_currency_info, initial_frequency):
+        """
+        The default donation amount is the second lowest amount in the list of amounts.
+        """
+        return sorted(initial_currency_info['presets'][initial_frequency])[1]
+
+    def get_initial_amount(self, request, initial_currency_info, initial_frequency):
+        """
+        When called with ?amount=..., that value will be preselected if:
+
+        1. it's a real number, and
+        2. that number can be found in the current list of possibles values.
+
+        If not, the default initial amount is used
+        """
+        amount = request.GET.get('amount', False)
+
+        if amount is False or 'e' in amount:
+            return self.default_initial_amount(initial_currency_info, initial_frequency)
+
+        try:
+            value = Decimal(amount).quantize(Decimal('0.01'))
+        except InvalidOperation:
+            return self.default_initial_amount(initial_currency_info, initial_frequency)
+
+        if value in initial_currency_info['presets'][initial_frequency]:
+            return value
+
+        return self.default_initial_amount(initial_currency_info, initial_frequency)
+
+    def get_initial_values(self, request):
+        frequency = self.get_initial_frequency(request)
+        currency = self.get_initial_currency(request)
+        currency_info = self.get_initial_currency_info(request, currency, frequency)
+        amount = self.get_initial_amount(request, currency_info, frequency)
+
+        return {
+            "frequency": frequency,
+            "currency": currency,
+            "currency_info": currency_info,
+            "amount": amount,
+        }
+
     def get_context(self, request):
         ctx = super().get_context(request)
-        initial_currency = self.get_initial_currency(request)
-        initial_frequency = self.get_initial_frequency(request)
+        values = self.get_initial_values(request)
         ctx.update({
             'currencies': self.currencies,
-            'initial_currency_info': self.get_initial_currency_info(
-                request, initial_currency, initial_frequency
-            ),
-            'initial_frequency': initial_frequency,
+            'initial_currency_info': values['currency_info'],
+            'initial_frequency': values['frequency'],
+            'initial_amount': values['amount'],
             'braintree_params': settings.BRAINTREE_PARAMS,
             'braintree_form': BraintreePaypalPaymentForm(
                 initial={
@@ -104,36 +171,26 @@ class DonationPage(TranslatablePageMixin, Page):
                     'campaign_id': self.campaign_id,
                 }
             ),
-            'currency_form': CurrencyForm(initial={'currency': initial_currency}),
+            'currency_form': CurrencyForm(initial={'currency': values['currency']}),
             'recaptcha_site_key': settings.RECAPTCHA_SITE_KEY if settings.RECAPTCHA_ENABLED else None,
         })
         return ctx
 
-    @classmethod
-    def can_create_at(cls, parent):
-        if not super().can_create_at(parent):
-            return False
-
-        # Prevent pages being created in translated sections
-        if issubclass(parent.specific_class, TranslatablePageMixin):
-            if parent.specific.locale_id != Locale.objects.default_id():
-                return False
-
-        return True
-
     class Meta:
-        unique_together = [
-            ('translation_key', 'locale'),
-        ]
         abstract = True
 
 
-class LandingPage(TranslatablePageRoutingMixin, DonationPage):
+class LandingPage(DonationPage):
     template = 'pages/core/landing_page.html'
 
     # Only allow creating landing pages at the root level
     parent_page_types = ['wagtailcore.Page']
-    subpage_types = ['core.CampaignPage', 'core.ContentPage']
+
+    subpage_types = [
+        'core.CampaignPage',
+        'core.ContentPage',
+        'core.ContributorSupportPage',
+    ]
 
     featured_image = models.ForeignKey(
         'wagtailimages.Image',
@@ -148,31 +205,13 @@ class LandingPage(TranslatablePageRoutingMixin, DonationPage):
         FieldPanel('intro'),
     ]
 
-    translatable_fields = [
-        TranslatableField('title'),
-        TranslatableField('seo_title'),
-        TranslatableField('search_description'),
-        SynchronizedField('project'),
-        SynchronizedField('campaign_id'),
-        SynchronizedField('featured_image'),
-        TranslatableField('intro'),
-    ]
-
-    def save(self, *args, **kwargs):
-        # This slug isn't used anywhere but it does need to be unique for each language
-        language_code = self.locale.language.code.lower()
-        if language_code == 'en-us':
-            # Needs to be something nice as translators will see it
-            self.slug = 'mozilla-donate'
-        else:
-            self.slug = 'mozilla-donate-' + language_code
-
-        super().save(*args, **kwargs)
-
 
 class CampaignPage(DonationPage):
     template = 'pages/core/campaign_page.html'
-    parent_page_types = ['core.LandingPage']
+    parent_page_types = ['core.LandingPage', 'core.CampaignPage']
+    subpage_types = ['core.CampaignPage']
+
+    submit_to_pontoon_on_publish = False
 
     hero_image = models.ForeignKey(
         'wagtailimages.Image',
@@ -188,17 +227,6 @@ class CampaignPage(DonationPage):
         FieldPanel('lead_text'),
         FieldPanel('intro'),
         InlinePanel('donation_amounts', label='Donation amount overrides'),
-    ]
-
-    translatable_fields = [
-        TranslatableField('title'),
-        TranslatableField('seo_title'),
-        TranslatableField('search_description'),
-        SynchronizedField('project'),
-        SynchronizedField('campaign_id'),
-        SynchronizedField('hero_image'),
-        TranslatableField('lead_text'),
-        TranslatableField('intro'),
     ]
 
     @classmethod
@@ -255,10 +283,10 @@ class CampaignPageDonationAmount(models.Model):
         unique_together = (('campaign', 'currency'),)
 
 
-class ContentPage(TranslatablePageMixin, Page):
+class ContentPage(Page):
     template = 'pages/core/content_page.html'
-    parent_page_types = ['LandingPage']
-    subpage_types = ['ContentPage']
+    parent_page_types = ['core.LandingPage']
+    subpage_types = ['core.ContentPage']
 
     call_to_action_text = models.CharField(max_length=255, blank=True)
     call_to_action_url = models.URLField(blank=True)
@@ -271,13 +299,25 @@ class ContentPage(TranslatablePageMixin, Page):
         StreamFieldPanel('body'),
     ]
 
-    translatable_fields = [
-        TranslatableField('title'),
-        TranslatableField('seo_title'),
-        TranslatableField('search_description'),
-        SynchronizedField('project'),
-        SynchronizedField('campaign_id'),
-        TranslatableField('call_to_action_text'),
-        SynchronizedField('call_to_action_url'),
-        TranslatableField('body'),
+    override_translatable_fields = [
+        SynchronizedField('slug'),
     ]
+
+
+class ContributorSupportPage(Page):
+    template = 'pages/core/contributor_support_page.html'
+    parent_page_types = ['core.LandingPage']
+
+    override_translatable_fields = [
+        SynchronizedField('slug'),
+    ]
+
+    # This page does not have subpages
+
+    def get_context(self, request):
+        ctx = super().get_context(request)
+        ctx.update({
+            'orgid': settings.SALESFORCE_ORGID,
+            'record_type_id': settings.SALESFORCE_CASE_RECORD_TYPE_ID,
+        })
+        return ctx

@@ -2,7 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-(function() {
+import gaEvent from "./analytics";
+
+(function () {
   "use strict";
 
   // !! this file assumes only one signup form per page !!
@@ -76,7 +78,7 @@
 
     var xhr = new XMLHttpRequest();
 
-    xhr.onload = function(r) {
+    xhr.onload = function (r) {
       if (r.target.status >= 200 && r.target.status < 300) {
         // response is null if handled by service worker
         if (response === null) {
@@ -100,7 +102,7 @@
       }
     };
 
-    xhr.onerror = function(e) {
+    xhr.onerror = function (e) {
       newsletterError(e);
     };
 
@@ -114,8 +116,17 @@
     xhr.responseType = "json";
     xhr.send(params);
 
+    gaEvent({
+      eventCategory: "Signup",
+      eventAction: "Submitted the Form",
+      eventLabel: "Email",
+    });
+
     return false;
   }
 
-  newsletterForm.addEventListener("submit", newsletterSubscribe, false);
+  // Check if the form exists in case it's removed in a template override like Thunderbird
+  if (newsletterForm) {
+    newsletterForm.addEventListener("submit", newsletterSubscribe, false);
+  }
 })();

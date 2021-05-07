@@ -17,7 +17,7 @@ $select-height--small: 37px;
     top: 0;
     right: 0;
     bottom: 0;
-    z-index: 2;
+    z-index: 2; /* FIXME: this needs a name, based on _variables.scss */
     width: 50px;
     height: 7px;
     margin: auto 0;
@@ -33,7 +33,7 @@ $select-height--small: 37px;
     position: absolute;
     top: 1px;
     right: 1px;
-    z-index: 1;
+    @include z-index(base);
     display: block;
     width: $select-height;
     height: ($select-height - 2px);
@@ -64,8 +64,8 @@ $select-height--small: 37px;
   }
 
   .donate-form__currency & {
-    max-width: 120px;
-    min-width: 120px;
+    max-width: 140px;
+    min-width: 140px;
 
     &:before {
       width: $select-height--small;
@@ -76,6 +76,7 @@ $select-height--small: 37px;
       @include font-size(default);
       color: $color--black;
       height: $select-height--small;
+      text-indent: 10px;
     }
   }
 }
